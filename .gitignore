@@ -1,0 +1,21 @@
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Configuration and API keys
+.env
+.env.*
+
+# VS Code
+.vscode/
+
+# Data
+data/raw/
+data/processed/
+
+# System files
+.DS_Store
+Thumbs.db
