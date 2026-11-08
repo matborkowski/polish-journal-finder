@@ -4,7 +4,6 @@ from pathlib import Path
 
 import streamlit as st
 
-# Import existing search engine
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR / "src"))
 
@@ -24,58 +23,97 @@ def get_data():
     return load_journals()
 
 
-st.title("Polish Journal Finder")
+def reset_filters():
+    st.session_state["query"] = ""
+    st.session_state["selected_disciplines"] = []
+    st.session_state["discipline_mode"] = "OR"
+    st.session_state["score_mode"] = "Minimum"
+    st.session_state["score_value"] = None
+
+
+st.title("Lista ministerialna 2024")
 
 st.write(
-    "Search the Polish ministerial list of scientific journals "
-    "using journal titles, ISSN, scientific disciplines and scores."
+    "Wyszukiwarka czasopism naukowych z ministerialnego wykazu "
+    "według tytułu, numeru ISSN, dyscypliny naukowej i punktacji."
 )
 
-st.caption("Data source: Polish ministerial journal list, January 2024")
+st.caption(
+    "Źródło danych: wykaz czasopism naukowych, styczeń 2024 r."
+)
 
 try:
     journals, disciplines = get_data()
 except (FileNotFoundError, ValueError) as error:
-    st.error(f"Unable to load journal data: {error}")
+    st.error(f"Nie udało się wczytać danych: {error}")
     st.stop()
 
 
-# Search filters
-st.sidebar.header("Search filters")
+# Filters
+st.sidebar.header("Filtry wyszukiwania")
 
 query = st.sidebar.text_input(
-    "Journal title or ISSN",
-    placeholder="Enter title or ISSN",
+    "Tytuł czasopisma lub ISSN",
+    placeholder="Wpisz tytuł lub numer ISSN",
+    key="query",
 )
 
 selected_disciplines = st.sidebar.multiselect(
-    "Scientific disciplines",
+    "Dyscypliny naukowe",
     options=sorted(disciplines),
+    placeholder="Wybierz dyscypliny naukowe",
+    key="selected_disciplines",
 )
 
 discipline_mode = st.sidebar.radio(
-    "Discipline matching",
+    "Sposób łączenia dyscyplin",
     options=["OR", "AND"],
     horizontal=True,
-    help="OR: any selected discipline; AND: all selected disciplines.",
+    key="discipline_mode",
+    help=(
+        "OR: czasopismo przypisane do co najmniej jednej "
+        "wybranej dyscypliny. "
+        "AND: czasopismo przypisane do wszystkich."
+    ),
 )
 
-score_options = sorted(journals["points"].dropna().unique().tolist())
+score_mode = st.sidebar.radio(
+    "Rodzaj filtrowania punktacji",
+    options=["Minimum", "Dokładnie"],
+    horizontal=True,
+    key="score_mode",
+)
 
-minimum_score = st.sidebar.selectbox(
-    "Minimum score",
+score_options = sorted(
+    journals["points"].dropna().unique().tolist()
+)
+
+score_value = st.sidebar.selectbox(
+    "Punktacja",
     options=[None] + score_options,
-    format_func=lambda value: "Any" if value is None else str(value),
+    format_func=lambda value: (
+        "Dowolna" if value is None else f"{value} pkt"
+    ),
+    key="score_value",
 )
 
-exact_score = st.sidebar.selectbox(
-    "Exact score",
-    options=[None] + score_options,
-    format_func=lambda value: "Any" if value is None else str(value),
+st.sidebar.button(
+    "Wyczyść filtry",
+    on_click=reset_filters,
+    use_container_width=True,
 )
 
 
-# Execute search
+minimum_score = (
+    score_value if score_mode == "Minimum" else None
+)
+
+exact_score = (
+    score_value if score_mode == "Dokładnie" else None
+)
+
+
+# Search
 results = search_journals(
     df=journals,
     disciplines=disciplines,
@@ -86,14 +124,40 @@ results = search_journals(
     exact_points=exact_score,
 )
 
-st.subheader("Search results")
 
-col1, col2 = st.columns(2)
+st.subheader("Wyniki wyszukiwania")
 
-col1.metric("Matching journals", f"{len(results):,}")
-col2.metric("Total journals", f"{len(journals):,}")
+col1, col2, col3 = st.columns(3)
 
+col1.metric("Znalezione czasopisma", f"{len(results):,}")
+col2.metric("Wszystkie czasopisma", f"{len(journals):,}")
+col3.metric("Wybrane dyscypliny", len(selected_disciplines))
+
+
+# Active filters summary
+active_filters = []
+
+if query.strip():
+    active_filters.append(f"Tytuł / ISSN: {query.strip()}")
+
+if selected_disciplines:
+    active_filters.append(
+        f"Dyscypliny ({discipline_mode}): "
+        + ", ".join(selected_disciplines)
+    )
+
+if score_value is not None:
+    active_filters.append(
+        f"Punktacja: {score_mode.lower()} {score_value}"
+    )
+
+if active_filters:
+    st.info("Aktywne filtry: " + " | ".join(active_filters))
+
+
+# Results
 display_columns = [
+    "journal_id",
     "journal_title",
     "issn_1",
     "eissn_1",
@@ -102,28 +166,42 @@ display_columns = [
 
 display_data = results[display_columns].rename(
     columns={
-        "journal_title": "Journal title",
+        "journal_id": "ID",
+        "journal_title": "Tytuł czasopisma",
         "issn_1": "ISSN",
         "eissn_1": "eISSN",
-        "points": "Score",
+        "points": "Punkty",
     }
 )
 
-st.dataframe(
-    display_data,
-    use_container_width=True,
-    hide_index=True,
-)
+if results.empty:
+    st.warning(
+        "Nie znaleziono czasopism spełniających "
+        "wybrane kryteria. Spróbuj zmienić filtry."
+    )
+else:
+    st.dataframe(
+        display_data,
+        use_container_width=True,
+        hide_index=True,
+    )
 
-csv_data = display_data.to_csv(index=False).encode("utf-8-sig")
+    csv_data = display_data.to_csv(
+        index=False
+    ).encode("utf-8-sig")
 
-st.download_button(
-    label="Download results (CSV)",
-    data=csv_data,
-    file_name="polish_journal_finder_results.csv",
-    mime="text/csv",
-)
+    st.download_button(
+        label="Pobierz wyniki (CSV)",
+        data=csv_data,
+        file_name="polish_journal_finder_results.csv",
+        mime="text/csv",
+    )
+
+
+st.divider()
 
 st.caption(
-    "Results are based on the January 2024 ministerial dataset."
+    "Polish Journal Finder — dane na podstawie "
+    "ministerialnego wykazu ze stycznia 2024 r. "
+    "Wyniki mają charakter informacyjny."
 )

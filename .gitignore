@@ -19,3 +19,6 @@ data/processed/
 # System files
 .DS_Store
 Thumbs.db
+
+# Generated search results
+polish_journal_finder_results.csv

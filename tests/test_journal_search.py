@@ -1,5 +1,6 @@
 
 import sys
+import pandas as pd
 from pathlib import Path
 
 import pytest
@@ -143,3 +144,102 @@ def test_unknown_discipline(dataset):
             disciplines,
             selected_disciplines=["nieistniejaca dyscyplina"],
         )
+
+
+def test_no_results(dataset):
+    journals, disciplines = dataset
+
+    results = search_journals(
+        journals,
+        disciplines,
+        query="xyz_nonexistent_journal_987654321",
+    )
+
+    assert results.empty
+
+
+def test_case_insensitive_search(dataset):
+    journals, disciplines = dataset
+
+    lower = search_journals(
+        journals, disciplines, query="nature"
+    )
+    upper = search_journals(
+        journals, disciplines, query="NATURE"
+    )
+
+    assert len(lower) > 0
+    assert set(lower["journal_id"]) == set(upper["journal_id"])
+
+
+def test_whitespace_in_search(dataset):
+    journals, disciplines = dataset
+
+    normal = search_journals(
+        journals, disciplines, query="nature"
+    )
+    padded = search_journals(
+        journals, disciplines, query="  nature  "
+    )
+
+    assert set(normal["journal_id"]) == set(padded["journal_id"])
+
+
+def test_combined_filters(dataset):
+    journals, disciplines = dataset
+
+    results = search_journals(
+        journals,
+        disciplines,
+        selected_disciplines=["nauki chemiczne"],
+        min_points=100,
+        exact_points=140,
+    )
+
+    expected = journals.loc[
+        journals["nauki chemiczne"].eq("x")
+        & journals["points"].eq(140)
+    ]
+
+    assert set(results["journal_id"]) == set(expected["journal_id"])
+    assert results["points"].eq(140).all()
+
+
+def test_sorting(dataset):
+    journals, disciplines = dataset
+
+    results = search_journals(journals, disciplines)
+
+    expected = results.sort_values(
+        by=["points", "journal_title"],
+        ascending=[False, True],
+    )
+
+    assert results["journal_id"].tolist() == expected["journal_id"].tolist()
+
+
+def test_invalid_mode(dataset):
+    journals, disciplines = dataset
+
+    with pytest.raises(ValueError):
+        search_journals(
+            journals,
+            disciplines,
+            selected_disciplines=["nauki chemiczne"],
+            discipline_mode="INVALID",
+        )
+
+
+def test_original_data_unchanged(dataset):
+    journals, disciplines = dataset
+
+    original = journals.copy(deep=True)
+
+    search_journals(
+        journals,
+        disciplines,
+        selected_disciplines=["nauki chemiczne"],
+        min_points=100,
+    )
+
+    pd.testing.assert_frame_equal(journals, original)
